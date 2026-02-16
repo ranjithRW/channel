@@ -89,7 +89,7 @@ function App() {
               <Menu className="w-6 h-6 text-gray-700" />
             )}
           </button>
-          <h1 className="text-2xl font-bold text-gray-800">IPTV Player</h1>
+          <h1 className="text-2xl font-bold text-gray-800">Obito Media Player</h1>
         </div>
         <div className="text-sm text-gray-600">
           {channels.length} channels available
