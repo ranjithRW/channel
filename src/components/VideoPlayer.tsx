@@ -239,12 +239,12 @@ export default function VideoPlayer({ src, channelName }: VideoPlayerProps) {
   return (
     <div
       ref={containerRef}
-      className="relative bg-black shadow-lg shadow-gray-300/40 ring-1 ring-gray-200 group"
+      className="relative bg-black overflow-hidden shadow-lg shadow-gray-300/40 ring-1 ring-gray-200 group"
       onMouseMove={handleMouseMove}
       onMouseLeave={() => !error && setShowControls(false)}
       onTouchStart={handleTouchStart}
     >
-      <div className="relative bg-black">
+      <div className="aspect-video relative bg-black">
         <video
           ref={videoRef}
           className="w-full h-full object-cover"
