@@ -4,6 +4,7 @@ import { fetchM3UPlaylist, fetchLanguageMap, mergeLanguageData } from './service
 import VideoPlayer from './components/VideoPlayer';
 import ChannelList from './components/ChannelList';
 import { Loader2, AlertCircle, Menu, X, Radio } from 'lucide-react';
+import { Analytics } from "@vercel/analytics/react"
 
 const PLAYLIST_URL = import.meta.env.VITE_PLAYLIST_URL;
 const LANGUAGE_PLAYLIST_URL = import.meta.env.VITE_LANGUAGE_PLAYLIST_URL;
@@ -82,6 +83,7 @@ function App() {
 
   return (
     <div className="h-screen flex flex-col bg-gray-50 overflow-hidden">
+      <Analytics />
       {/* Header */}
       <header className="relative z-40 flex-shrink-0 h-14 sm:h-16 flex items-center justify-between px-4 sm:px-6 bg-white border-b border-gray-200 shadow-sm">
         <div className="flex items-center gap-3">
