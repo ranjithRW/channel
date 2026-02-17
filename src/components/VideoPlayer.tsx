@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { Volume2, VolumeX, Maximize, Loader2, RefreshCw } from 'lucide-react';
+import { Volume2, VolumeX, Maximize, Minimize, RefreshCw, AlertTriangle } from 'lucide-react';
 import Hls from 'hls.js';
 
 interface VideoPlayerProps {
@@ -19,9 +19,13 @@ export default function VideoPlayer({ src, channelName }: VideoPlayerProps) {
   const hlsRef = useRef<Hls | null>(null);
   const retryCountRef = useRef(0);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showControls, setShowControls] = useState(true);
+  const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearRetryTimer = useCallback(() => {
     if (retryTimerRef.current) {
@@ -76,7 +80,6 @@ export default function VideoPlayer({ src, channelName }: VideoPlayerProps) {
       });
       hlsRef.current = hls;
 
-      // Load through the proxy to bypass CORS
       hls.loadSource(proxyUrl(url));
       hls.attachMedia(video);
 
@@ -143,11 +146,8 @@ export default function VideoPlayer({ src, channelName }: VideoPlayerProps) {
     destroyHls();
 
     if (Hls.isSupported()) {
-      // Always try HLS.js first — many IPTV streams are HLS
-      // even when the URL doesn't end in .m3u8
       initHls(video, src);
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      // Native HLS (Safari)
       video.src = proxyUrl(src);
       video.addEventListener('loadedmetadata', () => {
         setIsLoading(false);
@@ -166,6 +166,28 @@ export default function VideoPlayer({ src, channelName }: VideoPlayerProps) {
     };
   }, [src, destroyHls, initHls, tryNativePlayback]);
 
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  const handleMouseMove = useCallback(() => {
+    setShowControls(true);
+    if (controlsTimerRef.current) {
+      clearTimeout(controlsTimerRef.current);
+    }
+    controlsTimerRef.current = setTimeout(() => {
+      if (!error) setShowControls(false);
+    }, 3000);
+  }, [error]);
+
+  const handleTouchStart = useCallback(() => {
+    setShowControls(prev => !prev);
+  }, []);
+
   const toggleMute = () => {
     if (videoRef.current) {
       videoRef.current.muted = !videoRef.current.muted;
@@ -174,12 +196,13 @@ export default function VideoPlayer({ src, channelName }: VideoPlayerProps) {
   };
 
   const toggleFullscreen = () => {
-    if (videoRef.current) {
-      if (document.fullscreenElement) {
-        document.exitFullscreen();
-      } else {
-        videoRef.current.requestFullscreen();
-      }
+    const container = containerRef.current;
+    if (!container) return;
+
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else {
+      container.requestFullscreen();
     }
   };
 
@@ -214,11 +237,17 @@ export default function VideoPlayer({ src, channelName }: VideoPlayerProps) {
   };
 
   return (
-    <div className="relative bg-black rounded-lg overflow-hidden shadow-xl">
-      <div className="aspect-video relative">
+    <div
+      ref={containerRef}
+      className="relative bg-black rounded-xl overflow-hidden shadow-lg shadow-gray-300/40 ring-1 ring-gray-200 group"
+      onMouseMove={handleMouseMove}
+      onMouseLeave={() => !error && setShowControls(false)}
+      onTouchStart={handleTouchStart}
+    >
+      <div className="aspect-video relative bg-black">
         <video
           ref={videoRef}
-          className="w-full h-full"
+          className="w-full h-full object-contain"
           autoPlay
           playsInline
           onCanPlay={handleCanPlay}
@@ -226,52 +255,87 @@ export default function VideoPlayer({ src, channelName }: VideoPlayerProps) {
           onLoadStart={() => setIsLoading(true)}
         />
 
+        {/* Loading Overlay */}
         {isLoading && !error && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-75">
-            <Loader2 className="w-12 h-12 text-white animate-spin" />
+          <div className="absolute inset-0 flex items-center justify-center bg-gray-900/80 animate-fade-in">
+            <div className="text-center">
+              <div className="relative mx-auto mb-3 w-14 h-14">
+                <div className="absolute inset-0 rounded-full border-2 border-white/10" />
+                <div className="absolute inset-0 rounded-full border-2 border-brand-500 border-t-transparent animate-spin" />
+              </div>
+              <p className="text-white/70 text-sm">Connecting...</p>
+            </div>
           </div>
         )}
 
+        {/* Error Overlay */}
         {error && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-90 text-white p-8 text-center">
-            <div>
-              <p className="text-lg mb-2">{error}</p>
-              <p className="text-sm text-gray-400 mb-4">
-                Try selecting another channel
+          <div className="absolute inset-0 flex items-center justify-center bg-gray-900/90 animate-fade-in px-4">
+            <div className="text-center max-w-sm">
+              <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-brand-500/15 flex items-center justify-center">
+                <AlertTriangle className="w-7 h-7 text-brand-400" />
+              </div>
+              <p className="text-white text-sm font-medium mb-1">Stream Unavailable</p>
+              <p className="text-white/50 text-xs mb-5 leading-relaxed">
+                {error}
               </p>
-              <button
-                onClick={handleRetry}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition"
-              >
+              <button onClick={handleRetry} className="btn-primary text-sm">
                 <RefreshCw className="w-4 h-4" />
-                Retry
+                Retry Connection
               </button>
             </div>
           </div>
         )}
 
-        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black to-transparent p-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-white font-semibold text-lg">
-              {channelName}
-            </h2>
-            <div className="flex gap-2">
-              <button
-                onClick={toggleMute}
-                className="p-2 bg-white bg-opacity-20 hover:bg-opacity-30 rounded-lg transition"
-              >
-                {isMuted ? (
-                  <VolumeX className="w-5 h-5 text-white" />
-                ) : (
-                  <Volume2 className="w-5 h-5 text-white" />
-                )}
-              </button>
-              <button
-                onClick={toggleFullscreen}
-                className="p-2 bg-white bg-opacity-20 hover:bg-opacity-30 rounded-lg transition"
-              >
-                <Maximize className="w-5 h-5 text-white" />
-              </button>
+        {/* Controls Overlay */}
+        <div
+          className={`absolute inset-0 flex flex-col justify-end transition-opacity duration-300
+            ${showControls || error ? 'opacity-100' : 'opacity-0 pointer-events-none'}
+          `}
+        >
+          {/* Gradient Backdrop */}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/20 pointer-events-none" />
+
+          {/* Top Bar - Live Badge */}
+          <div className="absolute top-0 left-0 right-0 p-3 sm:p-4">
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-brand-600 shadow-sm">
+              <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse-soft flex-shrink-0" />
+              <span className="text-white text-[11px] sm:text-xs font-semibold uppercase tracking-wide">
+                Live
+              </span>
+            </div>
+          </div>
+
+          {/* Bottom Controls */}
+          <div className="relative z-10 p-3 sm:p-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-white font-semibold text-sm sm:text-base lg:text-lg truncate mr-4">
+                {channelName}
+              </h3>
+              <div className="flex items-center gap-1 sm:gap-1.5 flex-shrink-0">
+                <button
+                  onClick={toggleMute}
+                  className="p-2 sm:p-2.5 rounded-lg bg-white/15 hover:bg-white/25 backdrop-blur-sm transition-all duration-200 active:scale-95"
+                  aria-label={isMuted ? 'Unmute' : 'Mute'}
+                >
+                  {isMuted ? (
+                    <VolumeX className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+                  ) : (
+                    <Volume2 className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+                  )}
+                </button>
+                <button
+                  onClick={toggleFullscreen}
+                  className="p-2 sm:p-2.5 rounded-lg bg-white/15 hover:bg-white/25 backdrop-blur-sm transition-all duration-200 active:scale-95"
+                  aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+                >
+                  {isFullscreen ? (
+                    <Minimize className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+                  ) : (
+                    <Maximize className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>
