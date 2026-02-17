@@ -1,5 +1,5 @@
 export const config = {
-  runtime: 'edge',
+  maxDuration: 60,
 };
 
 function rewriteHlsManifest(content, baseUrl) {
@@ -40,38 +40,39 @@ function rewriteHlsManifest(content, baseUrl) {
     .join('\n');
 }
 
-export default async function handler(request) {
+export default async function handler(req, res) {
+  // CORS headers on every response
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', '*');
+
   // Handle CORS preflight
-  if (request.method === 'OPTIONS') {
-    return new Response(null, {
-      status: 204,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
-        'Access-Control-Allow-Headers': '*',
-        'Access-Control-Max-Age': '86400',
-      },
-    });
+  if (req.method === 'OPTIONS') {
+    res.status(204).end();
+    return;
   }
 
-  const reqUrl = new URL(request.url);
-  const targetUrl = reqUrl.searchParams.get('url');
+  const targetUrl = req.query.url;
 
   if (!targetUrl) {
-    return new Response('Missing url parameter', {
-      status: 400,
-      headers: { 'Access-Control-Allow-Origin': '*' },
-    });
+    res.status(400).send('Missing url parameter');
+    return;
   }
 
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 55000);
+
     const response = await fetch(targetUrl, {
       headers: {
         'User-Agent': 'VLC/3.0.20 LibVLC/3.0.20',
         Accept: '*/*',
       },
       redirect: 'follow',
+      signal: controller.signal,
     });
+
+    clearTimeout(timeout);
 
     const contentType = response.headers.get('content-type') || '';
 
@@ -97,31 +98,24 @@ export default async function handler(request) {
         ? rewriteHlsManifest(text, targetUrl)
         : text;
 
-      return new Response(body, {
-        status: 200,
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Content-Type': contentType || 'application/vnd.apple.mpegurl',
-          'Cache-Control': 'no-cache',
-        },
-      });
-    }
+      res.setHeader(
+        'Content-Type',
+        contentType || 'application/vnd.apple.mpegurl'
+      );
+      res.setHeader('Cache-Control', 'no-cache');
+      res.status(200).send(body);
+    } else {
+      // Buffer and forward non-manifest content (segments, etc.)
+      const arrayBuf = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuf);
 
-    // Stream non-manifest content (video segments, etc.)
-    return new Response(response.body, {
-      status: response.status,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Content-Type': contentType || 'application/octet-stream',
-      },
-    });
+      res.setHeader(
+        'Content-Type',
+        contentType || 'application/octet-stream'
+      );
+      res.status(response.status).send(buffer);
+    }
   } catch (err) {
-    return new Response('Proxy error: ' + (err.message || 'Unknown error'), {
-      status: 502,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Content-Type': 'text/plain',
-      },
-    });
+    res.status(502).send('Proxy error: ' + (err.message || 'Unknown error'));
   }
 }
